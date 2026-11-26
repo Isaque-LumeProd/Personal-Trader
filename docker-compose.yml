@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: sqlite:////data/personal_trader.db
+      JWT_SECRET: ${JWT_SECRET:-troque-este-segredo}
+      BRAPI_TOKEN: ${BRAPI_TOKEN:-}
+      MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER:-auto}
+      HISTORY_RANGE: ${HISTORY_RANGE:-1y}
+    volumes:
+      - data:/data
+
+volumes:
+  data:
