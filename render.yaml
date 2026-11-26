@@ -1,0 +1,31 @@
+# Blueprint do Render: API Python + Postgres. No painel do Render: New → Blueprint → este repositório.
+services:
+  - type: web
+    name: personal-trader-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: personal-trader-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: BRAPI_TOKEN
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+
+databases:
+  - name: personal-trader-db
+    plan: free
+    databaseName: trader
+    user: trader
