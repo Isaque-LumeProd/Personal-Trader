@@ -1,5 +1,3 @@
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,8 +7,7 @@ from ..models import Alert, User
 from ..schemas import AlertIn, AlertOut
 from ..security import current_user
 from ..services.market import MarketService, get_market
-from ..services.fmt import br
-from ..services.metrics import asset_metrics
+from ..services.alerts_engine import check_alerts
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
@@ -59,40 +56,11 @@ def delete_alert(alert_id: int, user: User = Depends(current_user), db: Session 
     db.commit()
 
 
-def evaluate(kind: str, threshold: float | None, m: dict) -> tuple[bool, float | None, str]:
-    price, rsi, dy, rec = m["price"], m["rsi14"], m["dy_12m"], m["recommendation"]
-    t = m["ticker"]
-    if kind == "PRICE_ABOVE":
-        return price >= threshold, price, f"{t} a R$ {br(price)} (alvo ≥ R$ {br(threshold)})"
-    if kind == "PRICE_BELOW":
-        return price <= threshold, price, f"{t} a R$ {br(price)} (alvo ≤ R$ {br(threshold)})"
-    if kind == "RSI_ABOVE":
-        return rsi is not None and rsi >= threshold, rsi, f"RSI de {t} em {br(rsi or 0, 0)} (alvo ≥ {br(threshold, 0)})"
-    if kind == "RSI_BELOW":
-        return rsi is not None and rsi <= threshold, rsi, f"RSI de {t} em {br(rsi or 0, 0)} (alvo ≤ {br(threshold, 0)})"
-    if kind == "DY_ABOVE":
-        return dy is not None and dy >= threshold, dy, f"DY 12m de {t} em {br(dy or 0)}% (alvo ≥ {br(threshold)}%)"
-    if kind == "SIGNAL_BUY":
-        return rec.startswith("COMPRA"), m["signal_score"], f"Sinal técnico de {t}: {rec}"
-    if kind == "SIGNAL_SELL":
-        return rec.startswith("VENDA"), m["signal_score"], f"Sinal técnico de {t}: {rec}"
-    return False, None, ""
-
-
 @router.post("/check")
-async def check_alerts(
+async def check(
     user: User = Depends(current_user), db: Session = Depends(get_db), market: MarketService = Depends(get_market)
 ):
-    alerts = list(db.scalars(select(Alert).where(Alert.user_id == user.id, Alert.active.is_(True))))
-    data, errors = await market.get_many([a.ticker for a in alerts])
-    now = datetime.now(timezone.utc)
-    results = []
-    for a in alerts:
-        if a.ticker not in data:
-            continue
-        triggered, value, message = evaluate(a.kind, a.threshold, asset_metrics(data[a.ticker]))
-        if triggered:
-            a.last_triggered_at = now
-        results.append({"alert_id": a.id, "ticker": a.ticker, "kind": a.kind, "triggered": triggered, "value": value, "message": message})
-    db.commit()
+    results, errors = await check_alerts(db, market, user_id=user.id)
+    for r in results:
+        r.pop("user_id", None)
     return {"results": results, "errors": errors}

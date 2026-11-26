@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { api, type Alert, type AlertCheck, type AlertKind } from "../api";
 import { Field, PageHead } from "../components/ui";
 import { date, number } from "../format";
 import { useApi } from "../hooks";
+import { notifyUnreadChanged } from "../notifications";
 
 const KINDS: Record<AlertKind, { label: string; unit?: string }> = {
   PRICE_ABOVE: { label: "Preço acima de", unit: "R$" },
@@ -57,6 +59,7 @@ export default function Alerts() {
     try {
       setCheck(await api<AlertCheck>("/alerts/check", { method: "POST" }));
       reload();
+      notifyUnreadChanged();
     } finally {
       setChecking(false);
     }
@@ -147,7 +150,8 @@ export default function Alerts() {
           </div>
         )}
         <p className="muted small" style={{ marginTop: 12 }}>
-          Os alertas são verificados ao abrir a Carteira ou ao clicar em “Verificar agora”.
+          Os alertas são verificados automaticamente durante o pregão, ao abrir a Carteira ou em “Verificar agora”.
+          Cada alerta avisa no máximo uma vez por dia — configure Telegram ou e-mail em <Link to="/configuracoes">Configurações</Link>.
         </p>
       </div>
     </div>

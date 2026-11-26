@@ -4,7 +4,7 @@ import { Disclaimer, Kpi, PageHead } from "../components/ui";
 import { date, money, monthLabel, number, pct, tone, TYPE_LABEL } from "../format";
 import { useApi } from "../hooks";
 
-const CAT_LABEL = { FII: "FIIs (20%)", ETF: "ETFs (15%)" } as const;
+const CAT_LABEL = { FII: "FIIs (20%)", ETF: "ETFs (15%)", ETF_DT: "ETFs day trade (20%)" } as const;
 
 export default function Tax() {
   const monthly = useApi<TaxMonthly>("/tax/monthly");
@@ -15,7 +15,7 @@ export default function Tax() {
 
   return (
     <div className="stack">
-      <PageHead title="Imposto de Renda" subtitle="Apuração mensal de ganho de capital (swing trade) e apoio à declaração anual" />
+      <PageHead title="Imposto de Renda" subtitle="Apuração mensal de ganho de capital (operações comuns e day trade) e apoio à declaração anual" />
       {monthly.error && <div className="error">{monthly.error}</div>}
       {m && (
         <>
@@ -26,7 +26,11 @@ export default function Tax() {
               sub={nextDarf ? `Vence em ${date(nextDarf.darf_due_date)} · código 6015` : "Nada a pagar"}
             />
             <Kpi label="Prejuízo a compensar — FIIs" value={money(m.accumulated_losses.FII)} />
-            <Kpi label="Prejuízo a compensar — ETFs" value={money(m.accumulated_losses.ETF)} />
+            <Kpi
+              label="Prejuízo a compensar — ETFs"
+              value={money(m.accumulated_losses.ETF)}
+              sub={m.accumulated_losses.ETF_DT ? `Day trade: ${money(m.accumulated_losses.ETF_DT)}` : undefined}
+            />
             <Kpi label="IR abaixo de R$ 10 acumulado" value={money(m.pending_below_minimum)} sub="Pago junto ao próximo DARF" />
           </div>
 
@@ -46,7 +50,7 @@ export default function Tax() {
                       <th className="num">Prejuízo compensado</th>
                       <th className="num">Base de cálculo</th>
                       <th className="num">IR devido</th>
-                      <th className="num">IRRF (0,005%)</th>
+                      <th className="num">IRRF</th>
                       <th className="num">Prejuízo acumulado</th>
                       <th className="num">DARF</th>
                     </tr>
@@ -56,7 +60,12 @@ export default function Tax() {
                       month.categories.map((c, i) => (
                         <tr key={`${month.month}-${c.category}`}>
                           <td>{i === 0 && <b>{monthLabel(month.month)}</b>}</td>
-                          <td>{CAT_LABEL[c.category]}</td>
+                          <td>
+                            {CAT_LABEL[c.category]}
+                            {c.category === "FII" && c.day_trade_result !== 0 && (
+                              <div className="muted small">inclui day trade: {money(c.day_trade_result)}</div>
+                            )}
+                          </td>
                           <td className="num">{money(c.gross_sales)}</td>
                           <td className={`num ${tone(c.result)}`}>{money(c.result)}</td>
                           <td className="num">{money(c.loss_compensated)}</td>
@@ -88,7 +97,8 @@ export default function Tax() {
               <li>FIIs: 20% sobre o lucro; prejuízos de FIIs só compensam lucros de FIIs. Rendimentos mensais de FIIs são isentos para pessoa física (regras de enquadramento aplicáveis).</li>
               <li>ETFs de renda variável: 15% sobre o lucro, sem a isenção de R$ 20 mil das ações.</li>
               <li>ETFs de renda fixa têm IR retido na fonte pelo administrador e não entram no DARF.</li>
-              <li>Day trade (alíquota de 20%) não é separado nesta versão. Alíquotas configuráveis no backend.</li>
+              <li>Day trade (compra e venda do mesmo ativo no mesmo dia): 20%. Em ETFs, o prejuízo de day trade só compensa lucro de day trade.</li>
+              <li>IRRF dedutível: 0,005% sobre as vendas comuns e 1% sobre o lucro de day trade. Alíquotas configuráveis no backend.</li>
             </ul>
           </div>
         </>

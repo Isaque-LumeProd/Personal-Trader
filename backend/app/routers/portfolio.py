@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..catalog import CATALOG_BY_TICKER
 from ..db import get_db
-from ..deps import to_inputs, user_transactions
+from ..deps import to_inputs, user_events, user_ledger, user_transactions
 from ..models import Dividend, User
 from ..security import current_user
 from ..services.market import MarketService, get_market
@@ -31,13 +31,15 @@ async def summary(
     user: User = Depends(current_user), db: Session = Depends(get_db), market: MarketService = Depends(get_market)
 ):
     today = date.today()
-    ledger = build_ledger(to_inputs(user_transactions(db, user)))
+    ledger = user_ledger(db, user)
     positions = ledger.open_positions()
     data, errors = await market.get_many([p.ticker for p in positions])
     dividends = list(db.scalars(select(Dividend).where(Dividend.user_id == user.id)))
 
-    received = [d for d in dividends if d.payment_date <= today]
-    upcoming = sorted((d for d in dividends if d.payment_date > today), key=lambda d: d.payment_date)
+    # amortizações devolvem capital (reduzem o custo) e não entram como renda
+    income = [d for d in dividends if d.kind != "AMORTIZACAO"]
+    received = [d for d in income if d.payment_date <= today]
+    upcoming = sorted((d for d in income if d.payment_date > today), key=lambda d: d.payment_date)
     year_ago = today - timedelta(days=365)
     div_total: dict[str, float] = defaultdict(float)
     div_12m: dict[str, float] = defaultdict(float)
@@ -133,6 +135,7 @@ async def evolution(
 ):
     """Patrimônio a mercado x capital investido ao longo do tempo."""
     txs = to_inputs(user_transactions(db, user))
+    events = user_events(db, user)
     if not txs:
         return {"points": []}
     data, _ = await market.get_many(list({t.ticker for t in txs}))
@@ -151,7 +154,7 @@ async def evolution(
         for ticker, series in closes.items():
             if d in series:
                 last_close[ticker] = series[d]
-        ledger = build_ledger(txs, until=d)
+        ledger = build_ledger(txs, events, until=d)
         value = invested = 0.0
         for p in ledger.open_positions():
             invested += p.total_cost

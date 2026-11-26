@@ -1,16 +1,21 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { api } from "../api";
+import { onUnreadChanged } from "../notifications";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../auth";
 
 const LINKS = [
   { to: "/", label: "Carteira", icon: "◧" },
   { to: "/lancamentos", label: "Lançamentos", icon: "⇄" },
+  { to: "/importar", label: "Importar da B3", icon: "⇪" },
   { to: "/proventos", label: "Proventos", icon: "◎" },
   { to: "/screener", label: "Screener", icon: "☰" },
   { to: "/analise", label: "Análise técnica", icon: "∿" },
   { to: "/rebalanceamento", label: "Rebalanceamento", icon: "⚖" },
   { to: "/ir", label: "Imposto de Renda", icon: "§" },
   { to: "/alertas", label: "Alertas", icon: "⚑" },
+  { to: "/notificacoes", label: "Notificações", icon: "✉" },
+  { to: "/configuracoes", label: "Configurações", icon: "⚙" },
 ];
 
 export function Logo() {
@@ -25,6 +30,19 @@ export function Logo() {
 export default function Layout() {
   const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
+  const refreshUnread = useCallback(() => {
+    api<{ unread: number }>("/notifications").then((r) => setUnread(r.unread)).catch(() => {});
+  }, []);
+  useEffect(() => {
+    refreshUnread();
+    const timer = setInterval(refreshUnread, 60_000);
+    const off = onUnreadChanged(refreshUnread);
+    return () => {
+      clearInterval(timer);
+      off();
+    };
+  }, [refreshUnread]);
   const location = useLocation();
   const [lastPath, setLastPath] = useState(location.pathname);
   if (lastPath !== location.pathname) {
@@ -39,7 +57,7 @@ export default function Layout() {
           <Logo /> Personal Trader
         </div>
         <button className="btn ghost sm" onClick={() => setOpen((o) => !o)} aria-label="Menu">
-          ☰
+          ☰{unread > 0 && <span className="count" style={{ marginLeft: 6 }}>{unread}</span>}
         </button>
       </div>
       <div className="shell">
@@ -52,6 +70,7 @@ export default function Layout() {
               <NavLink key={l.to} to={l.to} end={l.to === "/"}>
                 <span aria-hidden style={{ width: 18, textAlign: "center" }}>{l.icon}</span>
                 {l.label}
+                {l.to === "/notificacoes" && unread > 0 && <span className="count">{unread}</span>}
               </NavLink>
             ))}
           </nav>

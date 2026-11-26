@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from ..catalog import CATALOG, CATALOG_BY_TICKER
 from ..db import get_db
-from ..deps import to_inputs, user_transactions
+from ..deps import user_ledger
 from ..models import User
 from ..providers.base import MarketDataError
 from ..security import current_user
@@ -11,7 +11,6 @@ from ..services import technical as ta
 from ..services.fmt import br
 from ..services.market import MarketService, get_market
 from ..services.metrics import asset_metrics, score_universe
-from ..services.portfolio import build_ledger
 
 router = APIRouter(prefix="/api", tags=["market"])
 
@@ -129,7 +128,7 @@ async def screener(
     db: Session = Depends(get_db),
     market: MarketService = Depends(get_market),
 ):
-    held = {p.ticker for p in build_ledger(to_inputs(user_transactions(db, user))).open_positions()}
+    held = {p.ticker for p in user_ledger(db, user).open_positions()}
     data, errors = await market.get_many([a.ticker for a in CATALOG] + list(held))
     rows = [asset_metrics(a) for a in data.values()]
     for r in rows:

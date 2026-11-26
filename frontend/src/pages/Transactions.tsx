@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { api, type AssetType, type CatalogAsset, type Transaction } from "../api";
+import { Link } from "react-router-dom";
+import CorporateEvents from "../components/CorporateEvents";
 import { Field, PageHead } from "../components/ui";
 import { date, money, number, today, TYPE_LABEL } from "../format";
 import { useApi } from "../hooks";
@@ -89,7 +91,9 @@ export default function Transactions() {
 
   return (
     <div className="stack">
-      <PageHead title="Lançamentos" subtitle="Compras e vendas — o preço médio inclui corretagem e taxas" />
+      <PageHead title="Lançamentos" subtitle="Compras e vendas — o preço médio inclui corretagem e taxas">
+        <Link className="btn ghost" to="/importar">⇪ Importar da B3</Link>
+      </PageHead>
       <form className="card" onSubmit={submit}>
         <h2>{editing ? "Editar lançamento" : "Novo lançamento"}</h2>
         <div className="form-row">
@@ -189,6 +193,7 @@ export default function Transactions() {
           </div>
         )}
       </div>
+      <CorporateEvents onChange={reload} />
     </div>
   );
 }

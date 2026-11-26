@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from ..catalog import CATALOG_BY_TICKER
 from ..config import get_settings
 from ..db import get_db
-from ..deps import to_inputs, user_transactions
+from ..deps import to_inputs, user_events, user_ledger, user_transactions
 from ..models import Dividend, User
 from ..security import current_user
 from ..services.fmt import br
@@ -22,7 +22,7 @@ TYPE_DESCRIPTION = {"FII": "cotas do fundo imobiliário", "ETF": "cotas do fundo
 
 @router.get("/monthly")
 def monthly(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    ledger = build_ledger(to_inputs(user_transactions(db, user)))
+    ledger = user_ledger(db, user)
     return monthly_tax(ledger.sales, get_settings())
 
 
@@ -33,9 +33,9 @@ def annual(
     db: Session = Depends(get_db),
 ):
     """Dados de apoio à declaração anual (IRPF): bens e direitos, proventos e vendas do ano."""
-    txs = to_inputs(user_transactions(db, user))
-    end_prev = build_ledger(txs, until=date(year - 1, 12, 31))
-    end_year = build_ledger(txs, until=date(year, 12, 31))
+    txs, events = to_inputs(user_transactions(db, user)), user_events(db, user)
+    end_prev = build_ledger(txs, events, until=date(year - 1, 12, 31))
+    end_year = build_ledger(txs, events, until=date(year, 12, 31))
 
     assets = []
     for ticker in sorted(set(end_prev.positions) | set(end_year.positions)):

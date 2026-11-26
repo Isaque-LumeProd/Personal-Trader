@@ -1,4 +1,12 @@
-"""Cálculo de posições pelo preço médio (regra da Receita Federal)."""
+"""Cálculo de posições pelo preço médio (regra da Receita Federal).
+
+Processa o histórico dia a dia:
+1. Desdobramentos e grupamentos com data no dia (antes das negociações).
+2. Negociações do dia, por ativo. Compras e vendas do mesmo ativo no mesmo dia formam
+   day trade na quantidade casada (com o preço médio das compras do dia); o restante
+   é operação comum (swing trade) contra o preço médio da posição.
+3. Amortizações com data no dia (depois das negociações), que reduzem o custo.
+"""
 
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -24,6 +32,18 @@ class TxInput:
 
 
 @dataclass
+class EventInput:
+    """SPLIT/REVERSE_SPLIT: `factor` (ex.: 10 = 1 cota vira 10 / 10 cotas viram 1).
+    AMORTIZATION: `amount` total devolvido, abatido do custo."""
+
+    ticker: str
+    date: date
+    kind: str
+    factor: float | None = None
+    amount: float | None = None
+
+
+@dataclass
 class Sale:
     date: date
     ticker: str
@@ -31,8 +51,9 @@ class Sale:
     quantity: float
     gross_value: float  # quantidade x preço
     net_value: float  # descontadas as taxas
-    cost: float  # preço médio x quantidade
+    cost: float  # custo médio x quantidade
     gain: float
+    day_trade: bool = False
 
 
 @dataclass
@@ -57,61 +78,97 @@ class Ledger:
     def open_positions(self) -> list[Position]:
         return [p for p in self.positions.values() if p.quantity > EPS]
 
+    def quantity(self, ticker: str) -> float:
+        pos = self.positions.get(ticker)
+        return pos.quantity if pos else 0.0
 
-def sort_key(tx: TxInput):
-    # Na mesma data, compras antes das vendas (evita "vender a descoberto" em lançamentos do mesmo dia).
-    return (tx.date, 0 if tx.side == "BUY" else 1, tx.id)
+
+def _apply_trades(ledger: Ledger, ticker: str, txs: list[TxInput]) -> None:
+    buys = [t for t in txs if t.side == "BUY"]
+    sells = [t for t in txs if t.side == "SELL"]
+    for t in txs:
+        if t.side not in ("BUY", "SELL"):
+            raise PortfolioError(f"Tipo de operação inválido: {t.side}")
+    asset_type = txs[-1].asset_type
+    day = txs[0].date
+    pos = ledger.positions.setdefault(ticker, Position(ticker, asset_type))
+    pos.asset_type = asset_type
+
+    bq = sum(t.quantity for t in buys)
+    bcost = sum(t.quantity * t.price + t.fees for t in buys)
+    sq = sum(t.quantity for t in sells)
+    sgross = sum(t.quantity * t.price for t in sells)
+    snet = sgross - sum(t.fees for t in sells)
+    buy_avg = bcost / bq if bq > EPS else 0.0
+
+    dt = min(bq, sq)
+    if dt > EPS:
+        gross, net, cost = dt * sgross / sq, dt * snet / sq, dt * buy_avg
+        ledger.sales.append(Sale(day, ticker, asset_type, dt, gross, net, cost, net - cost, day_trade=True))
+        pos.realized += net - cost
+
+    rest_buy, rest_sell = bq - dt, sq - dt
+    if rest_buy > EPS:
+        pos.total_cost += rest_buy * buy_avg
+        pos.quantity += rest_buy
+    if bq > EPS:
+        pos.first_buy = pos.first_buy or day
+    if rest_sell > EPS:
+        if rest_sell > pos.quantity + EPS:
+            raise PortfolioError(
+                f"Venda de {rest_sell:g} {ticker} em {day:%d/%m/%Y} maior que a posição disponível ({pos.quantity:g})."
+            )
+        cost = pos.avg_price * rest_sell
+        gross, net = rest_sell * sgross / sq, rest_sell * snet / sq
+        ledger.sales.append(Sale(day, ticker, asset_type, rest_sell, gross, net, cost, net - cost))
+        pos.realized += net - cost
+        pos.quantity -= rest_sell
+        pos.total_cost -= cost
+        if pos.quantity <= EPS:
+            pos.quantity, pos.total_cost = 0.0, 0.0
 
 
-def build_ledger(transactions: list[TxInput], until: date | None = None) -> Ledger:
+def _apply_event(ledger: Ledger, ev: EventInput) -> None:
+    pos = ledger.positions.get(ev.ticker)
+    if pos is None or pos.quantity <= EPS:
+        return
+    if ev.kind == "SPLIT" and ev.factor:
+        pos.quantity *= ev.factor
+    elif ev.kind == "REVERSE_SPLIT" and ev.factor:
+        pos.quantity /= ev.factor
+    elif ev.kind == "AMORTIZATION" and ev.amount:
+        pos.total_cost = max(pos.total_cost - ev.amount, 0.0)
+
+
+def build_ledger(
+    transactions: list[TxInput], events: list[EventInput] | None = None, until: date | None = None
+) -> Ledger:
     ledger = Ledger()
-    for tx in sorted(transactions, key=sort_key):
-        if until and tx.date > until:
+    tx_by_day: dict[date, dict[str, list[TxInput]]] = defaultdict(lambda: defaultdict(list))
+    for tx in sorted(transactions, key=lambda t: (t.date, t.id)):
+        tx_by_day[tx.date][tx.ticker].append(tx)
+    ev_by_day: dict[date, list[EventInput]] = defaultdict(list)
+    for ev in events or []:
+        ev_by_day[ev.date].append(ev)
+
+    for day in sorted(set(tx_by_day) | set(ev_by_day)):
+        if until and day > until:
             break
-        pos = ledger.positions.setdefault(tx.ticker, Position(tx.ticker, tx.asset_type))
-        pos.asset_type = tx.asset_type
-        if tx.side == "BUY":
-            pos.total_cost += tx.quantity * tx.price + tx.fees
-            pos.quantity += tx.quantity
-            pos.first_buy = pos.first_buy or tx.date
-        elif tx.side == "SELL":
-            if tx.quantity > pos.quantity + EPS:
-                raise PortfolioError(
-                    f"Venda de {tx.quantity:g} {tx.ticker} em {tx.date:%d/%m/%Y} maior que a posição "
-                    f"disponível ({pos.quantity:g})."
-                )
-            cost = pos.avg_price * tx.quantity
-            gross = tx.quantity * tx.price
-            net = gross - tx.fees
-            gain = net - cost
-            ledger.sales.append(Sale(tx.date, tx.ticker, pos.asset_type, tx.quantity, gross, net, cost, gain))
-            pos.realized += gain
-            pos.quantity -= tx.quantity
-            pos.total_cost -= cost
-            if pos.quantity <= EPS:
-                pos.quantity, pos.total_cost = 0.0, 0.0
-        else:
-            raise PortfolioError(f"Tipo de operação inválido: {tx.side}")
+        for ev in ev_by_day.get(day, []):
+            if ev.kind in ("SPLIT", "REVERSE_SPLIT"):
+                _apply_event(ledger, ev)
+        for ticker, txs in sorted(tx_by_day.get(day, {}).items()):
+            _apply_trades(ledger, ticker, txs)
+        for ev in ev_by_day.get(day, []):
+            if ev.kind == "AMORTIZATION":
+                _apply_event(ledger, ev)
     return ledger
 
 
-def quantity_held(transactions: list[TxInput], ticker: str, on: date) -> float:
-    qty = 0.0
-    for tx in transactions:
-        if tx.ticker == ticker and tx.date <= on:
-            qty += tx.quantity if tx.side == "BUY" else -tx.quantity
-    return max(qty, 0.0)
-
-
-def quantity_timeline(transactions: list[TxInput]) -> dict[str, list[tuple[date, float]]]:
-    """Quantidade acumulada por ticker após cada data de operação."""
-    timeline: dict[str, list[tuple[date, float]]] = defaultdict(list)
-    running: dict[str, float] = defaultdict(float)
-    for tx in sorted(transactions, key=sort_key):
-        running[tx.ticker] += tx.quantity if tx.side == "BUY" else -tx.quantity
-        points = timeline[tx.ticker]
-        if points and points[-1][0] == tx.date:
-            points[-1] = (tx.date, running[tx.ticker])
-        else:
-            points.append((tx.date, running[tx.ticker]))
-    return timeline
+def quantity_held(
+    transactions: list[TxInput], ticker: str, on: date, events: list[EventInput] | None = None
+) -> float:
+    """Quantidade em carteira ao final do dia `on` (já considerando desdobramentos)."""
+    relevant = [t for t in transactions if t.ticker == ticker]
+    rel_events = [e for e in events or [] if e.ticker == ticker and e.kind != "AMORTIZATION"]
+    return build_ledger(relevant, rel_events, until=on).quantity(ticker)

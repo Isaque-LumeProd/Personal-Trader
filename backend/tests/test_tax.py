@@ -30,7 +30,7 @@ def test_losses_only_offset_same_category():
     by_month = {m["month"]: m for m in out["months"]}
     assert by_month["2025-02"]["tax"] == pytest.approx(150)  # ETF não usa prejuízo de FII
     assert by_month["2025-03"]["tax"] == pytest.approx(60)  # (800 - 500) * 20%
-    assert out["accumulated_losses"] == {"FII": 0.0, "ETF": 0.0}
+    assert out["accumulated_losses"] == {"FII": 0.0, "ETF": 0.0, "ETF_DT": 0.0}
 
 
 def test_darf_below_minimum_is_carried():
@@ -56,3 +56,22 @@ def test_fixed_income_etf_excluded_from_darf():
 def test_due_date_skips_weekend():
     assert last_business_day_of_next_month(2025, 4) == date(2025, 5, 30)  # 31/05/2025 é sábado
     assert last_business_day_of_next_month(2025, 12) == date(2026, 1, 30)
+
+
+def test_etf_day_trade_separate_bucket_and_rate():
+    dt_loss = Sale(date(2025, 1, 5), "BOVA11", "ETF", 10, 1000, 1000, 1100, -100, day_trade=True)
+    swing_gain = sale(date(2025, 2, 5), 1000, "ETF")
+    dt_gain = Sale(date(2025, 3, 5), "BOVA11", "ETF", 10, 1000, 1000, 700, 300, day_trade=True)
+    out = monthly_tax([dt_loss, swing_gain, dt_gain], S)
+    by_month = {m["month"]: m for m in out["months"]}
+    assert by_month["2025-02"]["tax"] == pytest.approx(150)  # prejuízo de DT não compensa operação comum
+    assert by_month["2025-03"]["tax"] == pytest.approx((300 - 100) * 0.20 - 300 * 0.01)  # menos IRRF de 1%
+
+
+def test_day_trade_irrf_is_one_percent_of_gain():
+    s = Settings(irrf_rate=0.0)
+    dt = Sale(date(2025, 1, 5), "BOVA11", "ETF", 10, 5000, 5000, 4000, 1000, day_trade=True)
+    cat = monthly_tax([dt], s)["months"][0]["categories"][0]
+    assert cat["category"] == "ETF_DT"
+    assert cat["irrf"] == pytest.approx(10)
+    assert cat["tax_net"] == pytest.approx(190)

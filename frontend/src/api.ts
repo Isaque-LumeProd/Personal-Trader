@@ -29,13 +29,14 @@ export function setUnauthorizedHandler(fn: () => void) {
 }
 
 export async function api<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const isForm = options.body instanceof FormData;
+  const headers: Record<string, string> = isForm ? {} : { "Content-Type": "application/json" };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(`/api${path}`, {
     method: options.method ?? "GET",
     headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body: options.body === undefined ? undefined : isForm ? (options.body as FormData) : JSON.stringify(options.body),
   });
   if (res.status === 401 && token) onUnauthorized();
   if (!res.ok) {
@@ -84,7 +85,7 @@ export interface Dividend {
   quantity: number;
   per_share: number;
   amount: number;
-  source: "manual" | "auto";
+  source: "manual" | "auto" | "import";
 }
 
 export interface PositionRow {
@@ -221,7 +222,8 @@ export interface RebalanceResult {
 }
 
 export interface TaxCategory {
-  category: "FII" | "ETF";
+  category: "FII" | "ETF" | "ETF_DT";
+  day_trade_result: number;
   rate: number;
   gross_sales: number;
   result: number;
@@ -278,7 +280,7 @@ export interface Alert {
 }
 
 export interface AlertCheck {
-  results: { alert_id: number; ticker: string; kind: AlertKind; triggered: boolean; value: number | null; message: string }[];
+  results: { alert_id: number; ticker: string; kind: AlertKind; triggered: boolean; notified: boolean; value: number | null; message: string }[];
   errors: Record<string, string>;
 }
 
@@ -287,4 +289,52 @@ export interface CatalogAsset {
   name: string;
   asset_type: AssetType;
   segment: string;
+}
+
+export interface ImportRow {
+  line: number;
+  kind: "trade" | "dividend";
+  ticker: string;
+  date: string | null;
+  quantity: number;
+  price: number;
+  fees: number;
+  side: "BUY" | "SELL" | null;
+  asset_type: AssetType | null;
+  dividend_kind: string | null;
+  amount: number;
+  status: "ok" | "duplicate" | "ignored" | "error";
+  reason: string | null;
+}
+
+export interface ImportPreview {
+  format: "b3_negociacao" | "b3_movimentacao" | "modelo";
+  rows: ImportRow[];
+  summary: Partial<Record<ImportRow["status"], number>>;
+}
+
+export interface CorporateEvent {
+  id: number;
+  ticker: string;
+  kind: "SPLIT" | "REVERSE_SPLIT";
+  date: string;
+  factor: number;
+  notes: string | null;
+}
+
+export interface AppNotification {
+  id: number;
+  message: string;
+  read: boolean;
+  channels: string;
+  created_at: string;
+}
+
+export interface UserSettings {
+  telegram_chat_id: string | null;
+  notify_email: boolean;
+  email: string;
+  channels_available: { telegram: boolean; email: boolean };
+  alert_check_minutes: number;
+  alert_market_hours_only: boolean;
 }

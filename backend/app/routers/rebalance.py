@@ -3,12 +3,11 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import to_inputs, user_transactions
+from ..deps import user_ledger
 from ..models import TargetAllocation, User
 from ..schemas import RebalanceIn, TargetIn
 from ..security import current_user
 from ..services.market import MarketService, get_market
-from ..services.portfolio import build_ledger
 from ..services.rebalance import Holding, rebalance
 
 router = APIRouter(prefix="/api/rebalance", tags=["rebalance"])
@@ -48,7 +47,7 @@ async def run_rebalance(
     targets = {t.ticker: t.target_pct for t in _targets(db, user)}
     if not targets:
         raise HTTPException(400, "Defina a alocação-alvo antes de calcular o rebalanceamento")
-    positions = {p.ticker: p for p in build_ledger(to_inputs(user_transactions(db, user))).open_positions()}
+    positions = {p.ticker: p for p in user_ledger(db, user).open_positions()}
     data, errors = await market.get_many(list(set(targets) | set(positions)))
 
     holdings: dict[str, Holding] = {}

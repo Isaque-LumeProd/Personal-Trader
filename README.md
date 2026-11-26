@@ -11,18 +11,21 @@ análise técnica com sinais de compra/venda, rebalanceamento por alocação-alv
 |---|---|
 | **Carteira** | Patrimônio, valor investido, valorização, retorno total, evolução do patrimônio x capital investido, alocação por classe e segmento, posições com yield on cost |
 | **Lançamentos** | Compras e vendas com taxas; preço médio pela regra da Receita (taxas entram no custo); bloqueia venda acima da posição |
+| **Importar da B3** | Lê os extratos de Negociação (compras/vendas) e Movimentação (rendimentos, dividendos, JCP, amortizações) da Área do Investidor, em .xlsx ou .csv, ou uma planilha no modelo próprio; pré-visualização, detecção de duplicados e confirmação |
+| **Eventos corporativos** | Desdobramentos e grupamentos ajustam a quantidade sem mudar o custo; amortizações reduzem o preço médio |
 | **Proventos** | Sincronização automática pela posição em cada *data com* + lançamento manual; histórico mensal e "a receber" |
 | **Screener** | DY 12m, último provento, P/VP, liquidez, retornos, volatilidade, RSI e um *score* 0–100 relativo aos pares |
 | **Análise técnica** | Preço com MM20/MM50 e Bandas de Bollinger, RSI(14), MACD(12,26,9); sinais combinados (tendência, cruzamento de médias, RSI, MACD, Bollinger) + sinais fundamentalistas (DY, P/VP) |
 | **Rebalanceamento** | Alocação-alvo por ativo; modo "só comprar" (distribui o aporte sem vender) ou "comprar e vender" |
-| **Imposto de Renda** | Apuração mensal (FII 20%, ETF 15%), compensação de prejuízo por categoria, IRRF 0,005%, DARF 6015 com vencimento, acúmulo abaixo de R$ 10; relatório anual (Bens e Direitos, proventos, vendas) |
-| **Alertas** | Preço acima/abaixo, DY, RSI e sinais técnicos de compra/venda |
+| **Imposto de Renda** | Apuração mensal (FII 20%, ETF 15%, day trade 20%), compensação de prejuízo por categoria, IRRF (0,005% e 1% no day trade), DARF 6015 com vencimento, acúmulo abaixo de R$ 10; relatório anual (Bens e Direitos, proventos, vendas) |
+| **Alertas e notificações** | Preço acima/abaixo, DY, RSI e sinais técnicos; verificação automática em segundo plano durante o pregão; aviso no app, por Telegram e por e-mail (no máximo uma vez por dia por alerta) |
 | **Multiusuário** | Cadastro/login com JWT; dados isolados por usuário |
 
 ## Arquitetura
 
 ```
-backend/   FastAPI + SQLAlchemy (SQLite por padrão, Postgres em produção)
+backend/   FastAPI + SQLAlchemy + Alembic (SQLite por padrão, Postgres em produção)
+  migrations/      migrações do banco (aplicadas automaticamente ao iniciar)
   app/providers/   brapi.dev (dados reais) e demo (dados simulados, sem rede)
   app/services/    regras de negócio puras: carteira, IR, indicadores, rebalanceamento, métricas
   app/routers/     API REST em /api/*
@@ -81,8 +84,20 @@ Um único container serve a API e o frontend compilado:
 BRAPI_TOKEN=seu-token JWT_SECRET=um-segredo-longo docker compose up --build
 ```
 
-Em produção: defina um `JWT_SECRET` forte, use Postgres em `DATABASE_URL`
-(ex.: `postgresql+psycopg://...`, instalando `psycopg[binary]`) e ajuste `CORS_ORIGINS`.
+O `docker-compose.yml` sobe a aplicação com **Postgres 16**. As migrações rodam sozinhas ao iniciar
+(`AUTO_MIGRATE=true`); para rodar manualmente: `cd backend && .venv/bin/alembic upgrade head`.
+Bancos criados pela versão 0.1 (antes das migrações) são reconhecidos e atualizados sem perda de dados.
+
+Em produção: defina um `JWT_SECRET` forte e ajuste `CORS_ORIGINS` e `APP_URL`.
+
+### Notificações
+
+- **Telegram**: crie um bot com o @BotFather e defina `TELEGRAM_BOT_TOKEN`. Cada usuário informa
+  seu *chat id* em Configurações (depois de mandar uma mensagem ao bot).
+- **E-mail**: defina `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` e `SMTP_FROM`.
+- `ALERT_CHECK_MINUTES` (padrão 15; 0 desativa) e `ALERT_MARKET_HOURS_ONLY` (dias úteis, 10h–18h30 de Brasília).
+- A verificação roda dentro do processo da API: com vários *workers*/réplicas, deixe-a ligada em só um
+  (ou mova para um job agendado).
 
 ## Regras de IR implementadas (pessoa física, swing trade)
 
@@ -92,12 +107,14 @@ Em produção: defina um `JWT_SECRET` forte, use Postgres em `DATABASE_URL`
 - **ETFs de renda fixa**: IR retido na fonte pelo administrador — ficam fora do DARF.
 - IRRF de 0,005% sobre o valor de venda é deduzido; DARF abaixo de R$ 10 acumula para o mês seguinte.
 - Alíquotas são configuráveis (`TAX_RATE_FII`, `TAX_RATE_ETF`) caso a legislação mude.
-- **Limitações**: day trade não é separado; feriados não são considerados no vencimento do DARF.
+- **Day trade**: compra e venda do mesmo ativo no mesmo dia formam day trade na quantidade casada, ao preço
+  médio das compras do dia; 20% de alíquota; em ETFs, prejuízo de day trade só compensa lucro de day trade.
+- **Limitações**: feriados não são considerados no vencimento do DARF; frações de grupamento ficam
+  fracionadas (o leilão de sobras deve ser lançado como venda).
 
 ## Próximos passos sugeridos
 
-- Importação de notas de corretagem / extrato da B3 (CSV)
-- Verificação periódica de alertas em background com envio por e-mail/Telegram
-- Separação de day trade e eventos corporativos (desdobramentos, grupamentos, amortizações no custo)
-- Migrações com Alembic e cobrança de assinatura (Stripe / Mercado Pago)
+- Cobrança de assinatura (Stripe ou Mercado Pago) e planos
+- Leitura de notas de corretagem em PDF (para trazer as taxas)
+- Recuperação de senha por e-mail
 - Integração de ordens com corretoras que ofereçam API

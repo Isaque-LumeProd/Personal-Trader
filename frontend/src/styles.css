@@ -210,3 +210,9 @@ tbody tr:hover { background: var(--surface-2); }
 .auth-card .field input { width: 100%; }
 
 .disclaimer { font-size: 0.78rem; color: var(--text-2); margin-top: 28px; }
+
+.dropzone { display: flex; align-items: center; justify-content: center; text-align: center; min-height: 110px; border: 2px dashed var(--border); border-radius: var(--radius); color: var(--text-2); cursor: pointer; padding: 16px; }
+.dropzone:hover { border-color: var(--accent); color: var(--accent); }
+.nav .count { margin-left: auto; background: var(--accent); color: var(--accent-ink); border-radius: 999px; font-size: 0.72rem; font-weight: 700; padding: 1px 7px; }
+.check-row { display: flex; align-items: center; gap: 8px; font-size: 0.92rem; }
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }

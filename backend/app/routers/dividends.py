@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import to_inputs, user_transactions
+from ..deps import to_inputs, user_events, user_transactions
 from ..models import Dividend, User
 from ..schemas import DividendIn, DividendOut
 from ..security import current_user
@@ -55,26 +55,27 @@ async def sync_dividends(
 ):
     """Importa proventos do provedor com base na posição em cada data com."""
     txs = to_inputs(user_transactions(db, user))
+    events = user_events(db, user)
     first_trade: dict[str, date] = {}
     for tx in txs:
         first_trade.setdefault(tx.ticker, tx.date)
     data, errors = await market.get_many(list(first_trade))
 
-    existing = {
-        (d.ticker, d.ex_date, d.kind, round(d.per_share, 6))
-        for d in db.scalars(select(Dividend).where(Dividend.user_id == user.id))
-    }
+    current = list(db.scalars(select(Dividend).where(Dividend.user_id == user.id)))
+    existing = {(d.ticker, d.ex_date, d.kind, round(d.per_share, 6)) for d in current}
+    # proventos lançados manualmente ou importados da B3 não têm data com: casa pela data de pagamento
+    by_payment = {(d.ticker, d.payment_date, d.kind) for d in current if d.source != "auto"}
     created = 0
     for ticker, asset in data.items():
         for c in asset.dividends:
             if c.ex_date < first_trade[ticker]:
                 continue
-            qty = quantity_held(txs, ticker, c.ex_date)
+            qty = quantity_held(txs, ticker, c.ex_date, events)
             if qty <= 0:
                 continue
             kind = normalize_kind(c.label)
             key = (ticker, c.ex_date, kind, round(c.rate, 6))
-            if key in existing:
+            if key in existing or (ticker, c.payment_date or c.ex_date, kind) in by_payment:
                 continue
             existing.add(key)
             db.add(

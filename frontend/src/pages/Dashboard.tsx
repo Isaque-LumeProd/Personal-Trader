@@ -6,6 +6,7 @@ import { AXIS, AllocationBars, GRID, Legend, Tip } from "../components/charts";
 import { Disclaimer, Kpi, MoneyDelta, PageHead, ProviderNotice, Segmented } from "../components/ui";
 import { compactMoney, date, money, monthLabel, number, pct, signedPct, tone, TYPE_LABEL } from "../format";
 import { useApi } from "../hooks";
+import { notifyUnreadChanged } from "../notifications";
 
 const RANGES = [
   { value: "90", label: "3M" },
@@ -20,7 +21,12 @@ export default function Dashboard() {
   const [allocBy, setAllocBy] = useState<"type" | "segment">("type");
   const [alerts, setAlerts] = useState<AlertCheck | null>(null);
   useEffect(() => {
-    api<AlertCheck>("/alerts/check", { method: "POST" }).then(setAlerts).catch(() => setAlerts(null));
+    api<AlertCheck>("/alerts/check", { method: "POST" })
+      .then((r) => {
+        setAlerts(r);
+        notifyUnreadChanged();
+      })
+      .catch(() => setAlerts(null));
   }, []);
 
   if (error) return <div className="error">{error}</div>;

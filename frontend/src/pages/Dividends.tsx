@@ -69,6 +69,7 @@ export default function Dividends() {
       </PageHead>
       <p className="muted small" style={{ marginTop: -12 }}>
         A sincronização calcula seus proventos a partir da sua posição em cada <b>data com</b>, usando os anúncios do provedor de dados.
+        Amortizações devolvem capital: reduzem o preço médio e não entram como renda.
       </p>
       {syncMsg && <div className="notice info">{syncMsg}</div>}
 
@@ -132,7 +133,7 @@ export default function Dividends() {
                     <td className="num">{number(d.quantity, 4)}</td>
                     <td className="num">R$ {number(d.per_share, 4)}</td>
                     <td className="num">{money(d.amount)}</td>
-                    <td className="muted small">{d.source === "auto" ? "Automático" : "Manual"}</td>
+                    <td className="muted small">{d.source === "auto" ? "Automático" : d.source === "import" ? "Importado B3" : "Manual"}</td>
                     <td className="num">
                       <button className="btn danger sm" onClick={() => remove(d)}>Excluir</button>
                     </td>

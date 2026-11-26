@@ -3,11 +3,11 @@ from sqlalchemy.orm import Session
 
 from ..catalog import guess_asset_type
 from ..db import get_db
-from ..deps import to_inputs, user_transactions
+from ..deps import user_ledger, user_transactions
 from ..models import Transaction, User
 from ..schemas import TransactionIn, TransactionOut
 from ..security import current_user
-from ..services.portfolio import PortfolioError, build_ledger
+from ..services.portfolio import PortfolioError
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
@@ -22,7 +22,7 @@ def _out(t: Transaction) -> TransactionOut:
 def _validate_or_rollback(db: Session, user: User) -> None:
     db.flush()
     try:
-        build_ledger(to_inputs(user_transactions(db, user)))
+        user_ledger(db, user)
     except PortfolioError as exc:
         db.rollback()
         raise HTTPException(400, str(exc)) from exc

@@ -6,6 +6,8 @@ import pytest
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["MARKET_DATA_PROVIDER"] = "demo"
 os.environ["JWT_SECRET"] = "test-secret-with-enough-length-for-hs256"
+os.environ["AUTO_MIGRATE"] = "false"
+os.environ["ALERT_CHECK_MINUTES"] = "0"
 
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import create_engine  # noqa: E402

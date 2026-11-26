@@ -1,13 +1,14 @@
-"""Apuração mensal de IR sobre ganho de capital em FIIs e ETFs (operações comuns / swing trade).
+"""Apuração mensal de IR sobre ganho de capital em FIIs e ETFs (pessoa física).
 
-Regras aplicadas:
-- FII: 20% sobre o lucro líquido; prejuízos só compensam lucros de FIIs.
-- ETF de renda variável: 15%; sem isenção de R$ 20 mil; prejuízos compensam lucros da mesma categoria.
+Categorias e regras:
+- FII: 20% (operações comuns e day trade); prejuízos de FII só compensam lucros de FII.
+- ETF (operações comuns): 15%; sem isenção de R$ 20 mil.
+- ETF_DT (day trade em ETFs): 20%; prejuízos de day trade só compensam lucros de day trade.
 - ETF de renda fixa: IR retido na fonte pelo administrador -> fora do DARF.
-- IRRF ("dedo-duro") de 0,005% sobre o valor de venda é deduzido do imposto devido.
+- IRRF: 0,005% sobre o valor das vendas comuns e 1% sobre o resultado positivo de day trade,
+  ambos dedutíveis do imposto devido no mês.
 - DARF (código 6015) abaixo de R$ 10,00 é acumulado para os meses seguintes.
 - Vencimento: último dia útil do mês seguinte (feriados não considerados).
-Limitação: day trade (20%) não é separado das operações comuns.
 """
 
 from collections import defaultdict
@@ -16,7 +17,15 @@ from datetime import date, timedelta
 from ..config import Settings
 from .portfolio import Sale
 
-CATEGORIES = ("FII", "ETF")
+CATEGORIES = ("FII", "ETF", "ETF_DT")
+
+
+def category_of(sale: Sale) -> str | None:
+    if sale.asset_type == "FII":
+        return "FII"
+    if sale.asset_type == "ETF":
+        return "ETF_DT" if sale.day_trade else "ETF"
+    return None  # ETF_RF: retido na fonte
 
 
 def last_business_day_of_next_month(year: int, month: int) -> date:
@@ -28,8 +37,14 @@ def last_business_day_of_next_month(year: int, month: int) -> date:
     return d
 
 
+def _irrf(sales: list[Sale], settings: Settings) -> float:
+    swing = sum(s.gross_value for s in sales if not s.day_trade) * settings.irrf_rate
+    dt = sum(max(s.gain, 0.0) for s in sales if s.day_trade) * settings.irrf_daytrade_rate
+    return swing + dt
+
+
 def monthly_tax(sales: list[Sale], settings: Settings) -> dict:
-    rates = {"FII": settings.tax_rate_fii, "ETF": settings.tax_rate_etf}
+    rates = {"FII": settings.tax_rate_fii, "ETF": settings.tax_rate_etf, "ETF_DT": settings.tax_rate_daytrade}
     by_month: dict[tuple[int, int], list[Sale]] = defaultdict(list)
     for s in sales:
         by_month[(s.date.year, s.date.month)].append(s)
@@ -42,7 +57,7 @@ def monthly_tax(sales: list[Sale], settings: Settings) -> dict:
         categories = []
         month_tax = 0.0
         for cat in CATEGORIES:
-            cat_sales = [s for s in month_sales if s.asset_type == cat]
+            cat_sales = [s for s in month_sales if category_of(s) == cat]
             if not cat_sales:
                 continue
             gross = sum(s.gross_value for s in cat_sales)
@@ -56,7 +71,7 @@ def monthly_tax(sales: list[Sale], settings: Settings) -> dict:
                 compensated, taxable = 0.0, 0.0
                 carried_loss[cat] = loss_before - gain
             tax_due = taxable * rates[cat]
-            irrf = gross * settings.irrf_rate
+            irrf = _irrf(cat_sales, settings)
             tax_net = max(tax_due - irrf, 0.0)
             month_tax += tax_net
             categories.append(
@@ -64,6 +79,7 @@ def monthly_tax(sales: list[Sale], settings: Settings) -> dict:
                     "category": cat,
                     "rate": rates[cat],
                     "gross_sales": round(gross, 2),
+                    "day_trade_result": round(sum(s.gain for s in cat_sales if s.day_trade), 2),
                     "result": round(gain, 2),
                     "loss_compensated": round(compensated, 2),
                     "taxable": round(taxable, 2),
@@ -74,7 +90,7 @@ def monthly_tax(sales: list[Sale], settings: Settings) -> dict:
                 }
             )
 
-        withheld = [s for s in month_sales if s.asset_type not in CATEGORIES]
+        withheld = [s for s in month_sales if category_of(s) is None]
         total = month_tax + pending_darf
         if total >= settings.darf_minimum:
             darf, pending_darf = total, 0.0
