@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -43,6 +44,15 @@ class Settings(BaseSettings):
     irrf_rate: float = 0.00005  # "dedo-duro" 0,005% sobre o valor de venda (operações comuns)
     irrf_daytrade_rate: float = 0.01  # 1% sobre o resultado positivo de day trade
     darf_minimum: float = 10.0
+
+    @field_validator("database_url")
+    @classmethod
+    def _use_psycopg3(cls, v: str) -> str:
+        # Render/Heroku/Neon entregam postgres:// ou postgresql://; o driver instalado é o psycopg 3
+        for prefix in ("postgres://", "postgresql://"):
+            if v.startswith(prefix):
+                return "postgresql+psycopg://" + v[len(prefix):]
+        return v
 
     @property
     def provider_name(self) -> str:

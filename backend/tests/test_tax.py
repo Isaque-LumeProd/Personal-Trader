@@ -75,3 +75,10 @@ def test_day_trade_irrf_is_one_percent_of_gain():
     assert cat["category"] == "ETF_DT"
     assert cat["irrf"] == pytest.approx(10)
     assert cat["tax_net"] == pytest.approx(190)
+
+
+def test_database_url_normalized_for_psycopg3():
+    assert Settings(database_url="postgres://u:p@h/db").database_url == "postgresql+psycopg://u:p@h/db"
+    assert Settings(database_url="postgresql://u:p@h/db").database_url == "postgresql+psycopg://u:p@h/db"
+    assert Settings(database_url="postgresql+psycopg://u:p@h/db").database_url == "postgresql+psycopg://u:p@h/db"
+    assert Settings(database_url="sqlite:///x.db").database_url == "sqlite:///x.db"

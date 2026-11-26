@@ -78,6 +78,25 @@ cd frontend && npm run typecheck
 
 ## Deploy
 
+### Netlify (frontend) + Render (API e banco)
+
+O Netlify só hospeda o frontend; a API Python roda no Render. O Netlify repassa `/api/*` para a API,
+então o navegador fala apenas com o domínio do Netlify (sem CORS).
+
+1. **Render**: em *New → Blueprint*, escolha este repositório. O `render.yaml` cria a API e um Postgres.
+   Preencha `BRAPI_TOKEN` (e, se quiser, `TELEGRAM_BOT_TOKEN`). Anote a URL da API, ex.:
+   `https://personal-trader-api.onrender.com` — teste em `/api/health`.
+2. **Netlify**: em *Add new site → Import an existing project*, escolha este repositório (o `netlify.toml`
+   já define pasta, build e publicação). Em *Site configuration → Environment variables*, crie
+   `API_URL` com a URL da API e faça o deploy.
+3. No Render, defina `APP_URL` com o endereço do site no Netlify (usado nos e-mails de alerta).
+
+No plano gratuito do Render a API "dorme" após um período sem acesso: o primeiro acesso demora
+e a verificação automática de alertas não roda enquanto ela dorme. Para alertas confiáveis, use um
+plano pago (ou mantenha a verificação manual). Confira também os limites do Postgres gratuito do Render.
+
+### Docker (tudo em um serviço)
+
 Um único container serve a API e o frontend compilado:
 
 ```bash

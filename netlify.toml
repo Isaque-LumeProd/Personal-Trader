@@ -1,0 +1,14 @@
+# Frontend no Netlify. A API Python roda em outro serviço (ex.: Render, ver render.yaml);
+# defina API_URL nas variáveis de ambiente do site no Netlify.
+[build]
+  base = "frontend"
+  command = "npm run build && node scripts/netlify-redirects.mjs"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
